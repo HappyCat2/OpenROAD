@@ -53,32 +53,13 @@ proc record_test { test cmd_dir } {
   return $test
 }
 
-# Record a test in the $RESIZER/test directory.
-proc record_resizer_tests { tests } {
+# Record a test in the /test directory.
+proc record_tests { tests } {
   global test_dir
   foreach test $tests {
     # Prune commented tests from the list.
     if { [string index $test 0] != "#" } {
       record_test $test $test_dir
-    }
-  }
-}
-
-# Record tests in $STAX/designs.
-proc record_test_design { tests } {
-  global env
-  if [info exists env(STAX)] {
-    foreach dir_test $tests {
-      # Prune commented tests from the list.
-      if { [string index $dir_test 0] != "#" } {
-	if {[regexp {([a-zA-Z0-9_]+)/([a-zA-Z0-9_]+)} $dir_test \
-	       ignore cmd_subdir test]} {
-	  set cmd_dir [file join $env(STAX) "designs" $cmd_subdir]
-	  record_test $test $cmd_dir
-	} else {
-	  puts "Warning: could not parse test name $dir_test"
-	}
-      }
     }
   }
 }
@@ -115,8 +96,8 @@ proc list_delete { list delete } {
 
 # Regression test lists.
 
-# Record tests in resizer/test
-record_resizer_tests {
+# Record tests in /test
+record_tests {
   simple01
   simple02
   simple03
@@ -125,23 +106,28 @@ record_resizer_tests {
   simple06
   simple07
   simple08
+  simple09
   fence01
   fence02
   fence03
   fragmented_row01
   fragmented_row02
   fragmented_row03
-  low_util01
-  low_util02
-  low_util03
   multi_height01
   multi_height02
   multi_height03
   multi_height04
-}
-
-# Record tests in $STAX/designs
-record_test_design {
+  pad01
+  pad02
+  pad03
+  pad04
+  pad05
+  overlap1
+  fillers1
+  fillers2
+  aes
+  gcd
+  ibex
 }
 
 ################################################################

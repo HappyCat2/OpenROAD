@@ -11,8 +11,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-#ifndef OPENROAD_H
-#define OPENROAD_H
+#pragma once
 
 #include <string>
 
@@ -22,6 +21,8 @@ struct Tcl_Interp;
 
 namespace odb {
 class dbDatabase;
+class adsRect;
+class dbBlock;
 }
 
 namespace sta {
@@ -30,12 +31,6 @@ class dbNetwork;
 class Resizer;
 }
 
-namespace pdngen {
-class PdnGen;
-}
-namespace ICeWall {
-class ICeWall;
-}
 namespace ioPlacer {
 class IOPlacementKernel;
 }
@@ -56,10 +51,6 @@ namespace opendp {
 class Opendp;
 }
 
-namespace psn {
-class Psn;
-}
-
 namespace MacroPlace {
 class TritonMacroPlace;
 }
@@ -70,6 +61,14 @@ class Replace;
 
 namespace OpenRCX {
 class Ext;
+}
+
+namespace psn {
+class Psn;
+}
+
+namespace pdnsim {
+class PDNSim;
 }
 
 namespace ord {
@@ -89,8 +88,6 @@ public:
   void init(Tcl_Interp *tcl_interp);
 
   Tcl_Interp *tclInterp() { return tcl_interp_; }
-  pdngen::PdnGen *getPdnGen(){ return pdngen_; }
-  ICeWall::ICeWall *getICeWall(){ return ICeWall_; }
   odb::dbDatabase *getDb() { return db_; }
   sta::dbSta *getSta() { return sta_; }
   sta::dbNetwork *getDbNetwork();
@@ -102,6 +99,11 @@ public:
   MacroPlace::TritonMacroPlace *getTritonMp() { return tritonMp_; }
   OpenRCX::Ext *getOpenRCX() { return extractor_; }
   replace::Replace* getReplace() { return replace_; }
+  pdnsim::PDNSim* getPDNSim() { return pdnsim_; }
+  // Return the bounding box of the db rows.
+  odb::adsRect getCore();
+  // Return true if the command units have been initialized.
+  bool unitsInitialized();
 
   void readLef(const char *filename,
 	       const char *lib_name,
@@ -132,18 +134,20 @@ private:
   ioPlacer::IOPlacementKernel *ioPlacer_;
   opendp::Opendp *opendp_;
   MacroPlace::TritonMacroPlace *tritonMp_;
-  pdngen::PdnGen *pdngen_;
-  ICeWall::ICeWall *ICeWall_;
   FastRoute::FastRouteKernel *fastRoute_;
   TritonCTS::TritonCTSKernel *tritonCts_;
   tapcell::Tapcell *tapcell_;
   OpenRCX::Ext *extractor_;
+  psn::Psn *psn_;
   replace::Replace *replace_;
+  pdnsim::PDNSim *pdnsim_; 
 
   // Singleton used by tcl command interpreter.
   static OpenRoad *openroad_;
 };
 
-} // namespace
+// Return the bounding box of the db rows.
+odb::adsRect
+getCore(odb::dbBlock *block);
 
-#endif
+} // namespace

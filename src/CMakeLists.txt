@@ -15,6 +15,8 @@
 
 set(OPENSTA_HOME ${PROJECT_SOURCE_DIR}/src/OpenSTA)
 set(OPENDB_HOME ${PROJECT_SOURCE_DIR}/src/OpenDB)
+set(INIT_FP_HOME ${PROJECT_SOURCE_DIR}/src/init_fp)
+set(DBSTA_HOME ${PROJECT_SOURCE_DIR}/src/dbSta)
 set(RESIZER_HOME ${PROJECT_SOURCE_DIR}/src/resizer)
 set(OPENDP_HOME ${PROJECT_SOURCE_DIR}/src/opendp)
 set(REPLACE_HOME ${PROJECT_SOURCE_DIR}/src/replace)
@@ -26,23 +28,21 @@ set(FASTROUTE_HOME ${PROJECT_SOURCE_DIR}/src/FastRoute)
 set(TAPCELL_HOME ${OPENROAD_HOME}/src/tapcell)
 set(OPENRCX_HOME ${OPENROAD_HOME}/src/OpenRCX)
 set(MPLACE_HOME ${PROJECT_SOURCE_DIR}/src/TritonMacroPlace)
+set(OPENPHYSYN_HOME ${PROJECT_SOURCE_DIR}/src/OpenPhySyn)
+set(PDNSIM_HOME ${PROJECT_SOURCE_DIR}/src/PDNSim)
 
 set(OPENROAD_TCL_INIT ${CMAKE_CURRENT_BINARY_DIR}/OpenRoadTclInitVar.cc)
 
 set(OPENROAD_SOURCE
   OpenRoad.cc
+  Error.cc
   ${OPENROAD_TCL_INIT}
   Main.cc
-
-  dbReadVerilog.cc
-  InitFloorplan.cc
   )
 
 set(OPENROAD_TCL_FILES
   ${OPENSTA_HOME}/tcl/Util.tcl
   OpenRoad.tcl
-  dbReadVerilog.tcl
-  InitFloorplan.tcl
   ${ICEWALL_HOME}/src/ICeWall.tcl
   ${PDNGEN_HOME}/src/PdnGen.tcl
   )
@@ -72,11 +72,13 @@ find_package(Boost)
 
 # OpenDB's swig wrapper is not in the library (and mistakenly exports
 # to the global namespace) so make our own.
+# build/src/CMakeFiles/opendb_swig.dir/opendbtclTCL_wrap.cxx
 set(OPENDB_SWIG_FILE ${OPENDB_HOME}/src/swig/tcl/opendbtcl.i)
 
 set_property(SOURCE ${OPENDB_SWIG_FILE}
   PROPERTY CPLUSPLUS ON
 )
+
 # Ubuntu 18.04 cmake version 3.10.2 does not support the
 # COMPILE_OPTIONS and INCLUDE_DIRECTORIES properties, so cram
 # them into SWIG_FLAGS for the time being.
@@ -89,6 +91,11 @@ set_property(SOURCE ${OPENDB_SWIG_FILE}
   -I${OPENDB_HOME}/src/swig/tcl
 )
 
+set_property(SOURCE ${OPENDB_SWIG_FILE}
+  PROPERTY DEPENDS
+  Exception.i
+)
+
 swig_add_library(opendb_swig
   LANGUAGE tcl
   TYPE STATIC
@@ -96,7 +103,7 @@ swig_add_library(opendb_swig
 )
 
 target_include_directories(opendb_swig
-  PUBLIC
+  PRIVATE
   ${Boost_INCLUDE_DIRS}
   ${TCL_INCLUDE_PATH}
 )
@@ -113,6 +120,7 @@ set(OPENROAD_SWIG_FILE OpenRoad.i)
 set_property(SOURCE ${OPENROAD_SWIG_FILE}
   PROPERTY CPLUSPLUS ON
 )
+
 # Ubuntu 18.04 cmake version 3.10.2 does not support the
 # COMPILE_OPTIONS and INCLUDE_DIRECTORIES properties, so cram
 # them into SWIG_FLAGS for the time being.
@@ -120,8 +128,14 @@ set_property(SOURCE ${OPENROAD_SWIG_FILE}
   PROPERTY SWIG_FLAGS
   -module openroad
   -namespace -prefix ord
+  -I${DBSTA_HOME}/include
   -I${OPENROAD_HOME}/src
   -I${OPENDB_HOME}/include
+)
+
+set_property(SOURCE ${OPENROAD_SWIG_FILE}
+  PROPERTY DEPENDS
+  Exception.i
 )
 
 swig_add_library(openroad_swig
@@ -130,6 +144,7 @@ swig_add_library(openroad_swig
   SOURCES ${OPENROAD_SWIG_FILE}
 )
 
+# build/src/CMakeFiles/openroad_swig.dir/OpenRoadTCL_wrap.cxx
 swig_link_libraries(openroad_swig
   PUBLIC
   openroad
@@ -151,6 +166,7 @@ target_include_directories(openroad_swig
   ${OPENSTA_HOME}/graph
   ${OPENSTA_HOME}/search
 
+  ${DBSTA_HOME}/include
   ${OPENDB_HOME}/include
 
   ${TCL_INCLUDE_PATH}
@@ -182,7 +198,20 @@ set(BUILD_TCL false)
 set(OPENROAD_BUILD ON)
 add_definitions(-DOPENROAD_BUILD)
 
+set(OPENSTA_INCLUDE_DIRS
+  ${OPENSTA_HOME}/util
+  ${OPENSTA_HOME}/liberty
+  ${OPENSTA_HOME}/network
+  ${OPENSTA_HOME}/graph
+  ${OPENSTA_HOME}/sdc
+  ${OPENSTA_HOME}/parasitics
+  ${OPENSTA_HOME}/dcalc
+  ${OPENSTA_HOME}/search
+  ${OPENSTA_HOME}/app
+  )
+
 # Build flow tools
+add_subdirectory(init_fp)
 add_subdirectory(OpenDB)
 add_subdirectory(OpenSTA)
 add_subdirectory(dbSta)
@@ -196,6 +225,8 @@ add_subdirectory(FastRoute)
 add_subdirectory(tapcell)
 add_subdirectory(TritonMacroPlace)
 add_subdirectory(OpenRCX)
+add_subdirectory(OpenPhySyn)
+add_subdirectory(PDNSim)
 
 ################################################################
 
@@ -214,20 +245,24 @@ target_include_directories(openroad
   PUBLIC ${OPENROAD_HOME}/include
   PRIVATE
   ${OPENROAD_HOME}/src
+  ${INIT_FP_HOME}/include
   ${OPENDB_HOME}/include
   ${REPLACE_HOME}/include
   ${OPENDP_HOME}/include
   ${MPLACE_HOME}/include
   ${FASTROUTE_HOME}/include
+  ${OPENPHYSYN_HOME}/include
   flute3
   ${PDNGEN_HOME}/include
   ${TAPCELL_HOME}/include
   ${OPENRCX_HOME}/include
+  ${PDNSIM_HOME}/include
   ${TCL_INCLUDE_PATH}
   ${Boost_INCLUDE_DIRS}
   )
 
 target_link_libraries(openroad
+  init_fp
   openroad_swig
   replace
   opendp
@@ -245,6 +280,8 @@ target_link_libraries(openroad
   TritonMacroPlace
   ParquetFP
   ABKCommon
+  OpenPhySyn
+  pdnsim
   zlib
   tm
   defin
@@ -287,7 +324,7 @@ add_custom_target(openroad_tags etags -o TAGS
   ${OPENROAD_SOURCE}
   ${OPENROAD_HOME}/include/openroad/*.hh
   ${OPENROAD_HOME}/src/dbSta/src/*.hh
-  ${OPENROAD_HOME}/include/db_sta/*.hh
+  ${DBSTA_HOME}/include/db_sta/*.hh
   ${OPENROAD_HOME}/src/dbSta/src/*.cc
   ${RESIZER_HOME}/src/*.hh
   ${RESIZER_HOME}/src/*.cc

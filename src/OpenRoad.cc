@@ -24,20 +24,25 @@
 #include "db_sta/dbSta.hh"
 #include "db_sta/MakeDbSta.hh"
 
-#include "dbReadVerilog.hh"
+#include "db_sta/dbReadVerilog.hh"
+#include "db_sta/dbNetwork.hh"
 #include "openroad/OpenRoad.hh"
 #include "openroad/InitOpenRoad.hh"
 #include "flute3/flute.h"
 
+#include "init_fp//MakeInitFloorplan.hh"
 #include "ioPlacer/src/MakeIoplacer.h"
+#include "resizer/MakeResizer.hh"
 #include "resizer/MakeResizer.hh"
 #include "opendp/MakeOpendp.h"
 #include "tritonmp/MakeTritonMp.h"
-#include "replace/src/MakeReplace.h"
+#include "replace/MakeReplace.h"
 #include "FastRoute/src/MakeFastRoute.h"
 #include "TritonCTS/src/MakeTritoncts.h"
 #include "tapcell/MakeTapcell.h"
 #include "OpenRCX/MakeOpenRCX.h"
+#include "OpenPhySyn/MakeOpenPhySyn.hpp"
+#include "pdnsim/MakePDNSim.hh"
 
 namespace sta {
 extern const char *openroad_tcl_inits[];
@@ -53,6 +58,9 @@ namespace ord {
 
 using odb::dbLib;
 using odb::dbDatabase;
+using odb::dbBlock;
+using odb::adsRect;
+
 using sta::evalTclInit;
 using sta::dbSta;
 using sta::Resizer;
@@ -70,6 +78,7 @@ OpenRoad::~OpenRoad()
   deleteDbSta(sta_);
   deleteResizer(resizer_);
   deleteOpendp(opendp_);
+  deletePsn(psn_);
   odb::dbDatabase::destroy(db_);
 }
 
@@ -97,9 +106,11 @@ OpenRoad::init(Tcl_Interp *tcl_interp)
   db_ = dbDatabase::create();
   sta_ = makeDbSta();
   verilog_network_ = makeDbVerilogNetwork();
+  // Only idiots need casts here. Don't copy this.
   ioPlacer_ = (ioPlacer::IOPlacementKernel*) makeIoplacer();
   resizer_ = makeResizer();
   opendp_ = makeOpendp();
+  // Only idiots need casts here. Don't copy this.
   fastRoute_ = (FastRoute::FastRouteKernel*) makeFastRoute();
 
   tritonCts_ = makeTritonCts();
@@ -107,6 +118,8 @@ OpenRoad::init(Tcl_Interp *tcl_interp)
   tritonMp_ = makeTritonMp();
   extractor_ = makeOpenRCX();
   replace_ = makeReplace();
+  psn_ = makePsn();
+  pdnsim_ = makePDNSim();
 
   // Init components.
   Openroad_Init(tcl_interp);
@@ -114,6 +127,7 @@ OpenRoad::init(Tcl_Interp *tcl_interp)
   evalTclInit(tcl_interp, sta::openroad_tcl_inits);
 
   Opendbtcl_Init(tcl_interp);
+  initInitFloorplan(this);
   Flute::readLUT();
   initDbSta(this);
   initResizer(this);
@@ -126,6 +140,8 @@ OpenRoad::init(Tcl_Interp *tcl_interp)
   initTapcell(this);
   initTritonMp(this);
   initOpenRCX(this);
+  initPsn(this);
+  initPDNSim(this);
   
   // Import exported commands to global namespace.
   Tcl_Eval(tcl_interp, "sta::define_sta_cmds");
@@ -243,6 +259,40 @@ OpenRoad::writeVerilog(const char *filename,
 		       bool sort)
 {
   sta::writeVerilog(filename, sort, sta_->network());
+}
+
+bool
+OpenRoad::unitsInitialized()
+{
+  // Units are set by the first liberty library read.
+  return getDbNetwork()->defaultLibertyLibrary() != nullptr;
+}
+
+odb::adsRect
+OpenRoad::getCore()
+{
+  return ord::getCore(db_->getChip()->getBlock());
+}
+
+adsRect
+getCore(dbBlock *block)
+{
+  odb::adsRect core;
+  auto rows = block->getRows();
+  if (rows.size() > 0) {
+    core.mergeInit();
+    for(auto db_row : block->getRows()) {
+      int orig_x, orig_y;
+      db_row->getOrigin(orig_x, orig_y);
+      odb::adsRect row_bbox;
+      db_row->getBBox(row_bbox);
+      core.merge(row_bbox);
+    }
+  }
+  else
+    // Default to die area if there aren't any rows.
+    block->getDieArea(core);
+  return core;
 }
 
 } // namespace

@@ -36,14 +36,14 @@
 // POSSIBILITY OF SUCH DAMAGE.
 ///////////////////////////////////////////////////////////////////////////////
 
-#ifndef OPENDP_H
-#define OPENDP_H
+#pragma once
 
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <map>
 #include <unordered_map>
+#include <set>
 #include <vector>
 
 #include "opendb/db.h"
@@ -53,6 +53,7 @@
 namespace opendp {
 
 using std::string;
+using std::vector;
 
 using odb::adsRect;
 using odb::dbBlock;
@@ -66,100 +67,60 @@ using odb::dbOrientType;
 using odb::dbRow;
 using odb::dbSite;
 
+class Pixel;
+struct Group;
+
+typedef Pixel* Grid;
+typedef std::vector<std::string> StringSeq;
+typedef vector<dbMaster*> dbMasterSeq;
+// gap -> sequence of masters to fill the gap
+typedef vector<dbMasterSeq> GapFillers;
+
 enum power { undefined, VDD, VSS };
 
 struct Macro {
-  dbMaster* db_master;
-  bool isMulti;       /* single row = false , multi row = true */
-  int edgetypeLeft;   // 1 or 2
-  int edgetypeRight;  // 1 or 2
-  power top_power;    // VDD = 0  VSS = 1 enum
-
-  Macro();
-  void print();
+  bool is_multi_row_;
+  power top_power_;    // VDD/VSS
 };
-
-struct Group;
 
 struct Cell {
-  dbInst* db_inst;
-  Macro* cell_macro;
-  int x_coord, y_coord;           // origin DBU
-  int init_x_coord, init_y_coord; // initial DBU
-  int x_pos, y_pos;               // grid position
-  int width, height;		  // DBU
-  bool is_placed;
-  bool hold;
-  adsRect *region;  // group rect
-  Group* cell_group;
-  double dense_factor;
-  int dense_factor_count;
-
   Cell();
   const char *name();
-  void print();
-  bool inGroup() { return cell_group != nullptr; }
-  int disp();
-};
+  bool inGroup() { return group_ != nullptr; }
+  int64_t area();
 
-struct Pixel {
-  double util;
-  int x_pos;
-  int y_pos;
-  Group* pixel_group;
-  Cell* linked_cell;
-  bool is_valid;  // false for dummy place
-
-  Pixel();
-};
-
-// Rows covering core.
-// These do NOT correspond to database rows, which may be fragmented.
-struct Row {
-  int origX; // DBU
-  int origY; // DBU
-  dbOrientType orient;
-  power top_power;
-  std::vector< Cell* > cells;
-
-  Row();
-  void print();
+  dbInst* db_inst_;
+  int x_, y_;		       // lower left wrt core DBU
+  dbOrientType orient_;
+  int width_, height_;		// DBU
+  bool is_placed_;
+  bool hold_;
+  Group* group_;
+  adsRect *region_;  // group rect
 };
 
 struct Group {
+  Group();
+
   std::string name;
   std::vector< adsRect > regions;
   std::vector< Cell* > siblings;
-  std::vector< Pixel* > pixels;
   adsRect boundary;
   double util;
-
-  Group();
 };
 
-struct sub_region {
-  adsRect boundary;
-  int x_pos, y_pos;
-  int width, height;
-  std::vector< Cell* > siblings;
-  sub_region();
+struct Pixel {
+  int grid_x_;
+  int grid_y_;
+  Group* group_;
+  Cell* cell;
+  double util;
+  bool is_valid;  // false for dummy cells
 };
-
-struct density_bin {
-  double lx, hx;     /* low/high x coordinate */
-  double ly, hy;     /* low/high y coordinate */
-  double area;       /* bin area */
-  double m_util;     /* bin's movable cell area */
-  double f_util;     /* bin's fixed cell area */
-  double free_space; /* bin's freespace area */
-  double overflow;
-  double density_limit;
-  void print();
-};
-
-enum class CoordType { init, coord, pos };
 
 ////////////////////////////////////////////////////////////////
+
+typedef std::set<dbMaster*> dbMasterSet;
 
 class Opendp {
  public:
@@ -167,33 +128,38 @@ class Opendp {
   ~Opendp();
   void clear();
   void init(dbDatabase* db);
-  bool readConstraints(string constraint_file);
-  // legalize/check/report
-  bool legalizePlacement(bool verbose);
-
-  bool checkLegality(bool verbose);
-
+  // legalize/report
+  // max_displacment is in rows, 0 for unconstrained
+  void detailedPlacement(int max_displacment);
+  void setPaddingGlobal(int left,
+			int right);
+  // Return true if illegal.
+  bool checkPlacement(bool verbose);
+  void fillerPlacement(StringSeq *filler_master_names);
   void reportLegalizationStats();
   void reportDesignStats();
   double hpwl(bool initial);
   void displacementStats(// Return values.
-			 int &avg_displacement,
-			 int &sum_displacement,
-			 int &max_displacement);
+			 int64_t &avg_displacement,
+			 int64_t &sum_displacement,
+			 int64_t &max_displacement);
+  void reportGrid();
 
  private:
   void dbToOpendp();
-  void make_macros(dbLib* db_lib);
-  void findCore();
-  void make_core_rows();
-  void make_cells();
+  void makeMacros(dbLib* db_lib);
+  void examineRows();
+  void makeCells();
   void makeGroups();
-  void findInitialPower();
+  void findRowPower();
   double dbuToMicrons(int64_t dbu);
   bool isFixed(Cell* cell);  // fixed cell or not
+  bool isMultiRow(Cell* cell);
+  power topPower(Cell* cell);
   void updateDbInstLocations();
 
-  void macro_define_top_power(Macro* myMacro);
+  void defineTopPower(Macro &macro,
+		      dbMaster *master);
   int find_ymax(dbMTerm* term);
 
   // read files for legalizer - parser.cpp
@@ -201,10 +167,8 @@ class Opendp {
   void findDesignStats();
   void copy_init_to_final();
 
-  // utility.cpp
   void power_mapping();
-  void simplePlacement(bool verbose);
-  void group_analyze();
+  void detailedPlacement();
   std::pair< int, int > nearest_coord_to_rect_boundary(Cell* cell,
                                                        adsRect* rect);
   int dist_for_rect(Cell* cell, adsRect* rect);
@@ -212,25 +176,27 @@ class Opendp {
   bool check_overlap(Cell* cell, adsRect* rect);
   bool check_inside(adsRect cell, adsRect box);
   bool check_inside(Cell* cell, adsRect* rect);
-  std::pair< bool, std::pair< int, int > > bin_search(int x_pos, Cell* cell,
-                                                      int x, int y);
-  std::pair< bool, Pixel* > diamond_search(Cell* cell, int x, int y);
+  bool binSearch(int grid_x, Cell* cell,
+		 int x, int y,
+		 // Return values
+		 int &avail_x,
+		 int &avail_y);
+  Pixel *diamondSearch(Cell* cell, int x, int y);
   bool shift_move(Cell* cell);
   bool map_move(Cell* cell);
   bool map_move(Cell* cell, int x, int y);
   std::vector< Cell* > overlap_cells(Cell* cell);
-  std::vector< Cell* > get_cells_from_boundary(adsRect* rect);
-  int dist_benefit(Cell* cell, int x_coord, int y_coord);
-  bool swap_cell(Cell* cellA, Cell* cellB);
+  std::set< Cell* > get_cells_from_boundary(adsRect* rect);
+  int dist_benefit(Cell* cell, int x, int y);
+  bool swap_cell(Cell* cell1, Cell* cell2);
   bool refine_move(Cell* cell);
-  std::pair< bool, Cell* > nearest_cell(int x_coord, int y_coord);
 
   void non_group_cell_pre_placement();
   void group_cell_pre_placement();
   void non_group_cell_placement();
   void group_cell_placement();
-  void brick_placement_1(Group* group);
-  void brick_placement_2(Group* group);
+  void brick_placement1(Group* group);
+  void brick_placement2(Group* group);
   int group_refine(Group* group);
   int group_annealing(Group* group);
   int non_group_annealing();
@@ -238,65 +204,97 @@ class Opendp {
 
   // assign.cpp
   void fixed_cell_assign();
-  void print_pixels();
   void group_cell_region_assign();
-  void non_group_cell_region_assign();
   void group_pixel_assign();
   void group_pixel_assign2();
   void erase_pixel(Cell* cell);
-  void paint_pixel(Cell* cell, int x_pos, int y_pos);
+  void paint_pixel(Cell* cell, int grid_x, int grid_y);
 
   bool row_check(bool verbose);
   bool site_check(bool verbose);
-  bool edge_check(bool verbose);
   bool power_line_check(bool verbose);
   bool placed_check(bool verbose);
   bool overlap_check(bool verbose);
+  void rectDist(Cell *cell,
+		adsRect *rect,
+		// Return values.
+		int x_tar,
+		int y_tar);
+  int rectDist(Cell *cell,
+	       adsRect *rect);
+  power rowTopPower(int row);
+  dbOrientType rowOrient(int row);
 
-  int gridNearestX(int x);
-  int gridNearestY(int y);
+  Grid *makeGrid();
+  void deleteGrid(Grid *grid);
+  // Cell initial location wrt core origin.
   int gridX(int x);
   int gridY(int y);
-  int gridWidth();
-  int gridHeight();
-  int gridWidth(Cell* cell);
+  int gridEndX();
+  int gridEndY();
+  int gridPaddedWidth(Cell* cell);
   int gridNearestHeight(Cell* cell);
   int gridNearestWidth(Cell* cell);
   int gridHeight(Cell* cell);
   int gridX(Cell* cell);
+  int gridPaddedX(Cell* cell);
   int gridY(Cell* cell);
-  int gridNearestX(Cell* cell);
-  int gridNearestY(Cell* cell);
-  int coreGridWidth();
-  int coreGridHeight();
+  int gridPaddedEndX(Cell *cell);
+  int gridEndX(Cell *cell);
+  int gridEndY(Cell *cell);
+  void setGridPaddedLoc(Cell *cell,
+			int x,
+			int y);
+  void initLocation(Cell *cell,
+		    int &x,
+		    int &y);
+  void initLocation(dbInst* inst,
+		    // Return values.
+		    int &x,
+		    int &y);
+  void initPaddedLoc(Cell *cell,
+		     int &x,
+		     int &y);
+  int paddedWidth(Cell *cell);
+  bool isPadded(Cell *cell);
+  bool isClassBlock(Cell *cell);
+  bool isClassCore(Cell *cell);
+  int disp(Cell *cell);
   int coreGridMaxX();
   int coreGridMaxY();
+  // Place fillers
+  void findFillerMasters(StringSeq *filler_master_names);
+  dbMasterSeq &gapFillers(int gap);
+  Grid *makeCellGrid();  
+  void placeRowFillers(Grid *grid,
+		       int row);
+  void reportGrid(Grid *grid);
 
   dbDatabase* db_;
   dbBlock* block_;
-  std::vector< Macro > macros_;
+  int pad_left_;
+  int pad_right_;
+
   std::vector< Cell > cells_;
-  std::vector< Row > rows_;
   std::vector< Group > groups_;
 
-  std::map< dbMaster*, Macro* > db_master_map_;
+  std::map< dbMaster*, Macro > db_master_map_;
   std::map< dbInst*, Cell* > db_inst_map_;
-  /* spacing between edges  1 to 1 , 1 to 2, 2 to 2 */
-  std::map< std::pair< int, int >, double > edge_spacing_;
 
   adsRect core_;
   power initial_power_;
+  bool row0_orient_is_r0_;
+  bool row0_top_power_is_vdd_;
   int row_height_; // dbu
   int site_width_;
+  int row_count_;
   int row_site_count_;
   int max_cell_height_;
-  int diamond_search_height_;  // grid units
-  int max_displacement_constraint_; // from constraints file
+  int max_displacement_constraint_;  // rows
 
   // 2D pixel grid
-  Pixel** grid_;
+  Grid *grid_;
   Cell dummy_cell_;
-  std::vector< sub_region > sub_regions_;
 
   // Design stats.
   int fixed_inst_count_;
@@ -308,6 +306,17 @@ class Opendp {
   // total fixed cell area (excluding terminal NIs) dbu^2
   int64_t fixed_area_;
   double design_util_;
+
+  dbMasterSeq filler_masters_;
+  // gap (in sites) -> seq of masters
+  GapFillers gap_fillers_;
+  int filler_count_;
+
+  // Magic numbers
+  int diamond_search_height_;  // grid units
+  static constexpr double group_refine_percent_ = .05;
+  static constexpr double non_group_refine_percent_ = .02;
+  static constexpr int rand_seed_ = 777;
 };
 
 int divRound(int dividend, int divisor);
@@ -315,5 +324,3 @@ int divCeil(int dividend, int divisor);
 int divFloor(int dividend, int divisor);
 
 }  // namespace opendp
-
-#endif
